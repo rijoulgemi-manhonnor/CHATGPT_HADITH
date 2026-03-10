@@ -6,6 +6,7 @@ import re
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 DATASET_URL = "https://cdn.jsdelivr.net/gh/fawazahmed0/hadith-api@1/editions/ara-bukhari.json"
 
@@ -13,12 +14,17 @@ SENT_FILE = "sent_hadiths.json"
 
 THEMES = {
     "دعاء": ["دع"],
+    "صبر": ["صبر"],
+    "صلاة": ["صل"],
+    "صيام": ["صوم"],
+    "صدقة": ["صدق"]
 }
 
 
 def normalize_arabic(text):
 
     text = re.sub(r'[ًٌٍَُِّْـ]', '', text)
+
     text = text.replace("أ", "ا")
     text = text.replace("إ", "ا")
     text = text.replace("آ", "ا")
@@ -27,6 +33,7 @@ def normalize_arabic(text):
 
 
 def fetch_hadiths():
+
     r = requests.get(DATASET_URL)
     r.raise_for_status()
     return r.json()["hadiths"]
@@ -63,6 +70,40 @@ def filter_by_theme(hadiths, keywords):
     return results
 
 
+# =========================
+# Explication IA avec Groq
+# =========================
+
+def generate_explanation(hadith_text):
+
+    url = "https://api.groq.com/openai/v1/chat/completions"
+
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    prompt = f"""
+اشرح هذا الحديث النبوي شرحا بسيطا ومختصرا في سطرين فقط:
+
+{hadith_text}
+"""
+
+    payload = {
+        "model": "llama3-8b-8192",
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.3
+    }
+
+    r = requests.post(url, headers=headers, json=payload)
+
+    r.raise_for_status()
+
+    return r.json()["choices"][0]["message"]["content"].strip()
+
+
 def send_to_telegram(message):
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -83,6 +124,7 @@ def main():
     sent = load_sent()
 
     theme = random.choice(list(THEMES.keys()))
+
     keywords = THEMES[theme]
 
     filtered = filter_by_theme(hadiths, keywords)
@@ -97,6 +139,8 @@ def main():
     text = hadith["text"]
     number = hadith["hadithnumber"]
 
+    explanation = generate_explanation(text)
+
     sent.add(number)
     save_sent(sent)
 
@@ -104,6 +148,9 @@ def main():
 📜 <b>حديث اليوم</b>
 
 {text}
+
+💡 <b>شرح مختصر</b>
+{explanation}
 
 📚 صحيح البخاري
 Hadith #{number}
@@ -113,7 +160,7 @@ Hadith #{number}
 
     send_to_telegram(message)
 
-    print("Hadith envoyé sans duplication.")
+    print("Hadith + explication envoyé.")
 
 
 if __name__ == "__main__":
