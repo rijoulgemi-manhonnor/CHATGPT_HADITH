@@ -83,26 +83,29 @@ def generate_explanation(hadith_text):
         "Content-Type": "application/json"
     }
 
-    prompt = f"""
-اشرح هذا الحديث النبوي شرحا بسيطا ومختصرا في سطرين فقط:
-
-{hadith_text}
-"""
-
     payload = {
-        "model": "llama3-8b-8192",
+        "model": "llama-3.1-8b-instant",
         "messages": [
-            {"role": "user", "content": prompt}
+            {
+                "role": "system",
+                "content": "أنت مساعد يشرح الأحاديث النبوية شرحا بسيطا وقصيرا."
+            },
+            {
+                "role": "user",
+                "content": f"اشرح هذا الحديث شرحا بسيطا في سطرين:\n\n{hadith_text}"
+            }
         ],
-        "temperature": 0.3
+        "temperature": 0.3,
+        "max_tokens": 120
     }
 
     r = requests.post(url, headers=headers, json=payload)
 
-    r.raise_for_status()
+    if r.status_code != 200:
+        print("Groq error:", r.text)
+        return "تعذر توليد شرح لهذا الحديث."
 
     return r.json()["choices"][0]["message"]["content"].strip()
-
 
 def send_to_telegram(message):
 
