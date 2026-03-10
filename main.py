@@ -1,6 +1,7 @@
 import os
 import requests
 import random
+import json
 import re
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -8,19 +9,20 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 DATASET_URL = "https://cdn.jsdelivr.net/gh/fawazahmed0/hadith-api@1/editions/ara-bukhari.json"
 
+SENT_FILE = "sent_hadiths.json"
+
 THEMES = {
-    "دعاء": ["دع", "يدع", "دعاء"],
+    "دعاء": ["دع"],
     "صبر": ["صبر"],
-    "صلاة": ["صل", "صلاة"],
-    "صيام": ["صوم", "صيام"],
-    "صدقة": ["صدق", "صدقة", "تصدق"]
+    "صلاة": ["صل"],
+    "صيام": ["صوم"],
+    "صدقة": ["صدق"]
 }
 
 
 def normalize_arabic(text):
 
     text = re.sub(r'[ًٌٍَُِّْـ]', '', text)
-
     text = text.replace("أ", "ا")
     text = text.replace("إ", "ا")
     text = text.replace("آ", "ا")
@@ -32,6 +34,21 @@ def fetch_hadiths():
     r = requests.get(DATASET_URL)
     r.raise_for_status()
     return r.json()["hadiths"]
+
+
+def load_sent():
+
+    if not os.path.exists(SENT_FILE):
+        return set()
+
+    with open(SENT_FILE) as f:
+        return set(json.load(f))
+
+
+def save_sent(sent):
+
+    with open(SENT_FILE, "w") as f:
+        json.dump(list(sent), f)
 
 
 def filter_by_theme(hadiths, keywords):
@@ -67,20 +84,25 @@ def main():
 
     hadiths = fetch_hadiths()
 
-    theme = random.choice(list(THEMES.keys()))
+    sent = load_sent()
 
+    theme = random.choice(list(THEMES.keys()))
     keywords = THEMES[theme]
 
     filtered = filter_by_theme(hadiths, keywords)
 
-    if not filtered:
-        hadith = random.choice(hadiths)
-        theme = "عام"
-    else:
-        hadith = random.choice(filtered)
+    available = [h for h in filtered if h["hadithnumber"] not in sent]
+
+    if not available:
+        available = hadiths
+
+    hadith = random.choice(available)
 
     text = hadith["text"]
     number = hadith["hadithnumber"]
+
+    sent.add(number)
+    save_sent(sent)
 
     message = f"""
 📜 <b>حديث اليوم</b>
@@ -95,7 +117,7 @@ Hadith #{number}
 
     send_to_telegram(message)
 
-    print("Hadith envoyé avec succès.")
+    print("Hadith envoyé sans duplication.")
 
 
 if __name__ == "__main__":
