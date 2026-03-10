@@ -1,46 +1,46 @@
 import os
 import requests
 import random
-
-# =========================
-# Configuration
-# =========================
+import re
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 DATASET_URL = "https://cdn.jsdelivr.net/gh/fawazahmed0/hadith-api@1/editions/ara-bukhari.json"
 
-# thèmes et mots-clés associés
 THEMES = {
-    "دعاء": ["دعاء", "يدعو", "ادع"],
-    "صبر": ["صبر", "يصبر", "صابر"],
-    "صلاة": ["صلاة", "يصلي", "صلوا"],
-    "رمضان": ["رمضان", "صوم", "صيام"],
-    "صدقة": ["صدقة", "تصدق", "مال"]
+    "دعاء": ["دع", "يدع", "دعاء"],
+    "صبر": ["صبر"],
+    "صلاة": ["صل", "صلاة"],
+    "صيام": ["صوم", "صيام"],
+    "صدقة": ["صدق", "صدقة", "تصدق"]
 }
 
-# =========================
-# Charger les hadiths
-# =========================
+
+def normalize_arabic(text):
+
+    text = re.sub(r'[ًٌٍَُِّْـ]', '', text)
+
+    text = text.replace("أ", "ا")
+    text = text.replace("إ", "ا")
+    text = text.replace("آ", "ا")
+
+    return text
+
 
 def fetch_hadiths():
     r = requests.get(DATASET_URL)
     r.raise_for_status()
-    data = r.json()
-    return data["hadiths"]
+    return r.json()["hadiths"]
 
-
-# =========================
-# Filtrer par thème
-# =========================
 
 def filter_by_theme(hadiths, keywords):
 
     results = []
 
     for h in hadiths:
-        text = h["text"]
+
+        text = normalize_arabic(h["text"])
 
         for k in keywords:
             if k in text:
@@ -49,10 +49,6 @@ def filter_by_theme(hadiths, keywords):
 
     return results
 
-
-# =========================
-# Envoyer message Telegram
-# =========================
 
 def send_to_telegram(message):
 
@@ -67,15 +63,10 @@ def send_to_telegram(message):
     requests.post(url, json=payload).raise_for_status()
 
 
-# =========================
-# Programme principal
-# =========================
-
 def main():
 
     hadiths = fetch_hadiths()
 
-    # choisir thème aléatoire
     theme = random.choice(list(THEMES.keys()))
 
     keywords = THEMES[theme]
@@ -83,10 +74,10 @@ def main():
     filtered = filter_by_theme(hadiths, keywords)
 
     if not filtered:
-        print("Aucun hadith trouvé pour ce thème")
-        return
-
-    hadith = random.choice(filtered)
+        hadith = random.choice(hadiths)
+        theme = "عام"
+    else:
+        hadith = random.choice(filtered)
 
     text = hadith["text"]
     number = hadith["hadithnumber"]
@@ -104,7 +95,7 @@ Hadith #{number}
 
     send_to_telegram(message)
 
-    print(f"Hadith envoyé (thème: {theme})")
+    print("Hadith envoyé avec succès.")
 
 
 if __name__ == "__main__":
