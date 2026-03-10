@@ -1,8 +1,12 @@
 import os
-import requests
 import random
 import json
-import re
+import requests
+from openai import OpenAI
+
+# =========================
+# CONFIG
+# =========================
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -12,32 +16,40 @@ DATASET_URL = "https://cdn.jsdelivr.net/gh/fawazahmed0/hadith-api@1/editions/ara
 
 SENT_FILE = "sent_hadiths.json"
 
-THEMES = {
-    "دعاء": ["دع"],
-    "صبر": ["صبر"],
-    "صلاة": ["صل"],
-    "صيام": ["صوم"],
-    "صدقة": ["صدق"]
-}
+THEMES = [
+    "دعاء",
+    "صبر",
+    "صلاة",
+    "صيام",
+    "صدقة",
+    "توبة",
+    "أخلاق"
+]
 
+# =========================
+# GROQ CLIENT
+# =========================
 
-def normalize_arabic(text):
+groq = OpenAI(
+    api_key=GROQ_API_KEY,
+    base_url="https://api.groq.com/openai/v1"
+)
 
-    text = re.sub(r'[ًٌٍَُِّْـ]', '', text)
-
-    text = text.replace("أ", "ا")
-    text = text.replace("إ", "ا")
-    text = text.replace("آ", "ا")
-
-    return text
-
+# =========================
+# LOAD HADITH DATA
+# =========================
 
 def fetch_hadiths():
 
     r = requests.get(DATASET_URL)
     r.raise_for_status()
+
     return r.json()["hadiths"]
 
+
+# =========================
+# SENT HADITH STORAGE
+# =========================
 
 def load_sent():
 
@@ -54,58 +66,83 @@ def save_sent(sent):
         json.dump(list(sent), f)
 
 
-def filter_by_theme(hadiths, keywords):
+# =========================
+# IA THEME DETECTION
+# =========================
 
-    results = []
+def detect_theme(hadith_text):
 
-    for h in hadiths:
+    prompt = f"""
+حدد موضوع هذا الحديث من القائمة التالية فقط:
 
-        text = normalize_arabic(h["text"])
+دعاء
+صبر
+صلاة
+صيام
+صدقة
+توبة
+أخلاق
 
-        for k in keywords:
-            if k in text:
-                results.append(h)
-                break
+أجب بكلمة واحدة فقط.
 
-    return results
+الحديث:
+{hadith_text}
+"""
+
+    response = groq.responses.create(
+        model="openai/gpt-oss-20b",
+        input=prompt,
+        temperature=0
+    )
+
+    return response.output_text.strip()
 
 
 # =========================
-# Explication IA avec Groq
+# IA EXPLANATION
 # =========================
 
 def generate_explanation(hadith_text):
 
-    url = "https://api.groq.com/openai/v1/chat/completions"
+    prompt = f"""
+اشرح هذا الحديث النبوي شرحا بسيطا ومختصرا في سطرين:
 
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
-    }
+{hadith_text}
+"""
 
-    payload = {
-        "model": "llama-3.1-8b-instant",
-        "messages": [
-            {
-                "role": "system",
-                "content": "أنت مساعد يشرح الأحاديث النبوية شرحا بسيطا وقصيرا."
-            },
-            {
-                "role": "user",
-                "content": f"اشرح هذا الحديث شرحا بسيطا في سطرين:\n\n{hadith_text}"
-            }
-        ],
-        "temperature": 0.3,
-        "max_tokens": 120
-    }
+    response = groq.responses.create(
+        model="openai/gpt-oss-20b",
+        input=prompt,
+        temperature=0.3
+    )
 
-    r = requests.post(url, headers=headers, json=payload)
+    return response.output_text.strip()
 
-    if r.status_code != 200:
-        print("Groq error:", r.text)
-        return "تعذر توليد شرح لهذا الحديث."
 
-    return r.json()["choices"][0]["message"]["content"].strip()
+# =========================
+# FIND HADITH BY THEME
+# =========================
+
+def find_hadith_by_theme(hadiths, theme, sent):
+
+    random.shuffle(hadiths)
+
+    for h in hadiths[:40]:
+
+        if h["hadithnumber"] in sent:
+            continue
+
+        detected = detect_theme(h["text"])
+
+        if theme in detected:
+            return h
+
+    return random.choice(hadiths)
+
+
+# =========================
+# TELEGRAM SEND
+# =========================
 
 def send_to_telegram(message):
 
@@ -117,8 +154,14 @@ def send_to_telegram(message):
         "parse_mode": "HTML"
     }
 
-    requests.post(url, json=payload).raise_for_status()
+    r = requests.post(url, json=payload)
 
+    r.raise_for_status()
+
+
+# =========================
+# MAIN
+# =========================
 
 def main():
 
@@ -126,18 +169,9 @@ def main():
 
     sent = load_sent()
 
-    theme = random.choice(list(THEMES.keys()))
+    theme = random.choice(THEMES)
 
-    keywords = THEMES[theme]
-
-    filtered = filter_by_theme(hadiths, keywords)
-
-    available = [h for h in filtered if h["hadithnumber"] not in sent]
-
-    if not available:
-        available = hadiths
-
-    hadith = random.choice(available)
+    hadith = find_hadith_by_theme(hadiths, theme, sent)
 
     text = hadith["text"]
     number = hadith["hadithnumber"]
@@ -163,7 +197,7 @@ Hadith #{number}
 
     send_to_telegram(message)
 
-    print("Hadith + explication envoyé.")
+    print("Hadith envoyé avec thème et explication.")
 
 
 if __name__ == "__main__":
