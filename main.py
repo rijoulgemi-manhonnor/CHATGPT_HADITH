@@ -11,24 +11,43 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 DATASET_URL = "https://cdn.jsdelivr.net/gh/fawazahmed0/hadith-api@1/editions/ara-bukhari.json"
 
+# thèmes et mots-clés associés
+THEMES = {
+    "دعاء": ["دعاء", "يدعو", "ادع"],
+    "صبر": ["صبر", "يصبر", "صابر"],
+    "صلاة": ["صلاة", "يصلي", "صلوا"],
+    "رمضان": ["رمضان", "صوم", "صيام"],
+    "صدقة": ["صدقة", "تصدق", "مال"]
+}
 
 # =========================
 # Charger les hadiths
 # =========================
 
 def fetch_hadiths():
-    response = requests.get(DATASET_URL)
-    response.raise_for_status()
-    data = response.json()
+    r = requests.get(DATASET_URL)
+    r.raise_for_status()
+    data = r.json()
     return data["hadiths"]
 
 
 # =========================
-# Choisir un hadith aléatoire
+# Filtrer par thème
 # =========================
 
-def get_random_hadith(hadiths):
-    return random.choice(hadiths)
+def filter_by_theme(hadiths, keywords):
+
+    results = []
+
+    for h in hadiths:
+        text = h["text"]
+
+        for k in keywords:
+            if k in text:
+                results.append(h)
+                break
+
+    return results
 
 
 # =========================
@@ -45,8 +64,7 @@ def send_to_telegram(message):
         "parse_mode": "HTML"
     }
 
-    response = requests.post(url, json=payload)
-    response.raise_for_status()
+    requests.post(url, json=payload).raise_for_status()
 
 
 # =========================
@@ -57,7 +75,18 @@ def main():
 
     hadiths = fetch_hadiths()
 
-    hadith = get_random_hadith(hadiths)
+    # choisir thème aléatoire
+    theme = random.choice(list(THEMES.keys()))
+
+    keywords = THEMES[theme]
+
+    filtered = filter_by_theme(hadiths, keywords)
+
+    if not filtered:
+        print("Aucun hadith trouvé pour ce thème")
+        return
+
+    hadith = random.choice(filtered)
 
     text = hadith["text"]
     number = hadith["hadithnumber"]
@@ -69,11 +98,13 @@ def main():
 
 📚 صحيح البخاري
 Hadith #{number}
+
+🏷️ الموضوع : {theme}
 """
 
     send_to_telegram(message)
 
-    print("Hadith envoyé avec succès.")
+    print(f"Hadith envoyé (thème: {theme})")
 
 
 if __name__ == "__main__":
